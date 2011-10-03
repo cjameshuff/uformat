@@ -208,11 +208,24 @@ char * bfrprintf(char * bfr, int len, const char * format, ...)
             *opts.buffer++ = '\0';
             ++format;
         }
-#ifndef UPRINTF_TINY
+#ifdef UPRINTF_TINY
         else if(*format == 'C') {
             ++format;
-            for(int j = 0; j < opts.width; ++j)
+            while(opts.buffer != opts.bufferEnd)
                 *opts.buffer++ = *format;
+            ++format;
+        }
+#else
+        else if(*format == 'C') {
+            ++format;
+            if(opts.width > 0) {
+                for(int j = 0; j < opts.width && opts.buffer != opts.bufferEnd; ++j)
+                    *opts.buffer++ = *format;
+            }
+            else {
+                while(opts.buffer != opts.bufferEnd)
+                    *opts.buffer++ = *format;
+            }
             ++format;
         }
 #endif // UPRINTF_TINY
