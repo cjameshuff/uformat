@@ -208,6 +208,12 @@ char * bfrprintf(char * bfr, int len, const char * format, ...)
             *opts.buffer++ = '\0';
             ++format;
         }
+        else if(*format == 's') {
+            char * src = va_arg(args, char *);
+            while(*src)
+                *opts.buffer++ = *src++;
+            ++format;
+        }
 #ifdef UPRINTF_TINY
         else if(*format == 'C') {
             ++format;
@@ -306,6 +312,9 @@ int main(int argc, const char * argv[])
     
     bEnd = bfrprintf(buffer, 256, "Foo%4C&%N", 10);
     CheckResult(buffer, bEnd, "Foo&&&&\0");
+    
+    bEnd = bfrprintf(buffer, 256, "%s %s%N", "red", "truck");
+    CheckResult(buffer, bEnd, "red truck\0");
     
     return EXIT_SUCCESS;
 }
