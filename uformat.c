@@ -33,7 +33,7 @@
 #define isdigit(x)  ((x) >= '0' && (x) <= '9')
 
 #ifdef TEST_UFORMAT
-// gcc uprintf.c -std=gnu99 -DTEST -o uprintf
+// gcc uformat.c -std=gnu99 -DTEST_UFORMAT -o uformat_test
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -53,12 +53,15 @@ struct FormatOpts {
 };
 
 // Print integer, return address of character after the end
-char * bfrprint_integer(struct FormatOpts * opts, uint32_t val)
+char * bfrprint_integer(struct FormatOpts * opts, uint32_t val, int base)
 {
-    int digits = 1, maxval = 9;
-    while(digits < 10 && val > maxval) {
+    int digits = 1, maxval = 1;
+    while(digits < 16) {
+        int x = maxval*base;
+        if(x > val || x < maxval)
+            break;
         ++digits;
-        maxval = maxval*10 + 9;
+        maxval = x;
     }
     
     // Check that room remains, write #'s if insufficient room for complete number.
@@ -89,11 +92,12 @@ char * bfrprint_integer(struct FormatOpts * opts, uint32_t val)
         *opts->buffer++ = opts->pre;
 #endif // UPRINTF_TINY
     
-    for(int d = digits - 1; d >= 0; --d) {
-        opts->buffer[d] = '0' + val % 10;
-        val /= 10;
+    for(int d = 0; d < digits; ++d) {
+        int x = val/maxval;
+        val -= x*maxval;
+        maxval /= base;
+        *opts->buffer++ = (x < 10)? ('0' + x) : ('A' + x - 10);
     }
-    opts->buffer += digits;
     
 #ifndef UPRINTF_TINY
     if(opts->ljust) {
@@ -102,16 +106,6 @@ char * bfrprint_integer(struct FormatOpts * opts, uint32_t val)
     }
 #endif // UPRINTF_TINY
     
-    return opts->buffer;
-}
-
-char * bfrprint_hex(struct FormatOpts * opts, uint32_t val)
-{
-    int digits = 1, maxval = 0xF;
-    while(digits < 8 && val > maxval) {
-        ++digits;
-        maxval = (maxval << 4) | 0xF;
-    }
     return opts->buffer;
 }
 
@@ -184,16 +178,16 @@ char * bfrprintf(char * bfr, int len, const char * format, ...)
                 val = -val;
             }
             // Longs not implemented (yet)
-            bfrprint_integer(&opts, val);
+            bfrprint_integer(&opts, val, 10);
             ++format;
         }
         else if(*format == 'u') {
             // Longs not implemented (yet)
-            bfrprint_integer(&opts, va_arg(args, unsigned int));
+            bfrprint_integer(&opts, va_arg(args, unsigned int), 10);
             ++format;
         }
         else if(*format == 'x' || *format == 'X') {
-            bfrprint_hex(&opts, va_arg(args, unsigned int));
+            bfrprint_integer(&opts, va_arg(args, unsigned int), 16);
             ++format;
         }
         else if(*format == 'c') {
@@ -210,7 +204,7 @@ char * bfrprintf(char * bfr, int len, const char * format, ...)
         }
         else if(*format == 's') {
             char * src = va_arg(args, char *);
-            while(*src)
+            while(*src && opts.buffer != opts.bufferEnd)
                 *opts.buffer++ = *src++;
             ++format;
         }
@@ -282,6 +276,8 @@ int main(int argc, const char * argv[])
     CheckResult(buffer, bEnd, "Foo1\0");
     bEnd = bfrprintf(buffer, 256, "Foo%d%N", 9);
     CheckResult(buffer, bEnd, "Foo9\0");
+    bEnd = bfrprintf(buffer, 256, "Foo%d%N", 123456789);
+    CheckResult(buffer, bEnd, "Foo123456789\0");
     bEnd = bfrprintf(buffer, 256, "Foo%d%N", 10);
     CheckResult(buffer, bEnd, "Foo10\0");
     bEnd = bfrprintf(buffer, 256, "Foo%4d%N", 10);
@@ -309,6 +305,11 @@ int main(int argc, const char * argv[])
     CheckResult(buffer, bEnd, "Foo-10 \0");
     bEnd = bfrprintf(buffer, 256, "Foo%-+4d%N", -10);
     CheckResult(buffer, bEnd, "Foo-10 \0");
+    
+    bEnd = bfrprintf(buffer, 256, "Foo%X%N", 0x12345678);
+    CheckResult(buffer, bEnd, "Foo12345678\0");
+    bEnd = bfrprintf(buffer, 256, "Foo%X%N", 0x9ABCDEF0);
+    CheckResult(buffer, bEnd, "Foo9ABCDEF0\0");
     
     bEnd = bfrprintf(buffer, 256, "Foo%4C&%N", 10);
     CheckResult(buffer, bEnd, "Foo&&&&\0");
