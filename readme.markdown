@@ -1,7 +1,8 @@
 Micro format strings implementation.
-As compiled for Cortex-M3 with GCC 4.5.0, it currently comes out to 486 B with formatting, 302 B in minimal form.
+As compiled for Cortex-M3 with GCC 4.5.0, it currently comes out to 476 B with formatting, 282 B in minimal form.
 
     char * bfrprintf(char * buffer, int len, const char * format, ...);
+    char * vbfrprintf(char * bfr, int len, const char * format, va_list args);
 
 Prints format string to buffer, and returns address of character after the end.
 Usage is very similar to snprintf(), but does not append a null character...only the contents of the format string are written, allowing it to be used to write into a buffer without overwriting bits with null characters.

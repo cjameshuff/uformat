@@ -26,7 +26,6 @@
 //************************************************************************************************
 
 #include "uformat.h"
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -109,14 +108,12 @@ char * bfrprint_integer(struct FormatOpts * opts, uint32_t val, int base)
     return opts->buffer;
 }
 
-char * bfrprintf(char * bfr, int len, const char * format, ...)
+char * vbfrprintf(char * bfr, int len, const char * format, va_list args)
 {
     struct FormatOpts opts;
     opts.buffer = bfr;
     opts.bufferEnd = bfr + len;
     
-    va_list args;
-    va_start(args, format);
     while(*format != '\0' && opts.buffer != opts.bufferEnd)
     {
         if(*format != '%') {
@@ -231,13 +228,20 @@ char * bfrprintf(char * bfr, int len, const char * format, ...)
 #endif // UPRINTF_TINY
     }
     
-    va_end(args);
     return opts.buffer;
+}
+
+char * bfrprintf(char * bfr, int len, const char * format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    char * end = vbfrprintf(bfr, len, format, args);
+    va_end(args);
+    return end;
 }
 
 
 #ifdef TEST_UFORMAT
-// gcc uformat.c -std=gnu99 -DTEST_UFORMAT -o uformat_test
 
 void CheckOverrun(char * buffer, int len, char * bEnd)
 {

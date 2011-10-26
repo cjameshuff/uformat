@@ -28,6 +28,8 @@
 #ifndef UPRINTF_H
 #define UPRINTF_H
 
+#include <stdarg.h>
+
 // #define UPRINTF_LONG_INT   0 // Not implemented yet
 // #define UPRINTF_FLOAT      0 // Not implemented yet
 // #define UPRINTF_FIXPOINT   0 // Not implemented yet
@@ -44,6 +46,7 @@
 // %N: explicit null character
 // # flag and * for width/precision by arguments are unimplemented
 // %x and %X both use upper case letters
-char * bfrprintf(char * buffer, int len, const char * format, ...);
+char * bfrprintf(char * bfr, int len, const char * format, ...);
+char * vbfrprintf(char * bfr, int len, const char * format, va_list args);
 
 #endif // UPRINTF_H
