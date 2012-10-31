@@ -38,21 +38,38 @@
 #include <string.h>
 #endif
 
+//#define UPRINTF_FLOATS
+
 
 struct FormatOpts {
-    char * buffer;
-    char * bufferEnd;
     char pre;
 #ifndef UPRINTF_TINY
     char pad;
     bool ljust;
-    int width;
-    int precision;
+    uint8_t width;
+#ifdef UPRINTF_FLOATS
+    int8_t precision;
+#endif // UPRINTF_FLOATS
 #endif // UPRINTF_TINY
+    
+    int nchars;
+    int maxlen;
+    
+    int (*putc_f)(char, void*);
+    void * userdata;
 };
 
+
+int putc_linbuf(char c, void * userdata)
+{
+    char ** buffer = (char **)userdata;
+    *(*buffer)++ = c;
+    return 0;
+}
+
+
 // Print integer, return address of character after the end
-char * bfrprint_integer(struct FormatOpts * opts, uint32_t val, int base)
+void bfrprint_integer(struct FormatOpts * opts, uint32_t val, int base)
 {
     int digits = 1, maxval = 1;
     while(digits < 16) {
@@ -65,65 +82,91 @@ char * bfrprint_integer(struct FormatOpts * opts, uint32_t val, int base)
     
     // Check that room remains, write #'s if insufficient room for complete number.
     int len = (opts->pre)? (digits + 1) : (digits);
-    if(len > (opts->bufferEnd - opts->buffer)) {
-        while(opts->buffer != opts->bufferEnd)
-            *opts->buffer++ = '#';
-        return opts->buffer;
+    if(len > (opts->maxlen - opts->nchars)) {
+        while(opts->nchars < opts->maxlen) {
+            opts->putc_f('#', opts->userdata);
+            ++(opts->nchars);
+        }
+        return;
     }
     
 #ifndef UPRINTF_TINY
+    // if +/- prefix specified and pad character is zero, output prefix immediately
+    // START-000DIGITS
     if(opts->pre)
     {
-        opts->width -= 1;
-        if(opts->pad == '0')
-            *opts->buffer++ = opts->pre;
+        if(opts->width)
+            opts->width -= 1;
+        
+        if(opts->pad == '0') {
+            opts->putc_f(opts->pre, opts->userdata);
+            ++(opts->nchars);
+        }
     }
     
+    // output padding if right-justified
     if(!opts->ljust) {
-        for(int j = 0; j < opts->width - digits; ++j)
-            *opts->buffer++ = opts->pad;
+        for(int j = 0; j < opts->width - digits; ++j) {
+            opts->putc_f(opts->pad, opts->userdata);
+            ++(opts->nchars);
+        }
     }
     
-    if(opts->pre && opts->pad == ' ')
-        *opts->buffer++ = opts->pre;
+    // if +/- prefix specified and pad character is space, output prefix here
+    // START   -DIGITS
+    if(opts->pre && opts->pad == ' ') {
+        opts->putc_f(opts->pre, opts->userdata);
+        ++(opts->nchars);
+    }
 #else
-    if(opts->pre)
-        *opts->buffer++ = opts->pre;
+    // output +/- prefix if specified
+    if(opts->pre) {
+        opts->putc_f(opts->pre, opts->userdata);
+        ++(opts->nchars);
+    }
 #endif // UPRINTF_TINY
     
+    // Output integer digits
     for(int d = 0; d < digits; ++d) {
         int x = val/maxval;
         val -= x*maxval;
         maxval /= base;
-        *opts->buffer++ = (x < 10)? ('0' + x) : ('A' + x - 10);
+        opts->putc_f((x < 10)? ('0' + x) : ('A' + x - 10), opts->userdata);
+        ++(opts->nchars);
     }
     
 #ifndef UPRINTF_TINY
+    // If left-justified, emit trailing fill characters
     if(opts->ljust) {
-        for(int j = 0; j < opts->width - digits; ++j)
-            *opts->buffer++ = ' ';
+        for(int j = 0; j < opts->width - digits; ++j) {
+            opts->putc_f(' ', opts->userdata);
+            ++(opts->nchars);
+        }
     }
 #endif // UPRINTF_TINY
-    
-    return opts->buffer;
 }
 
-char * vbfrprintf(char * bfr, int len, const char * format, va_list args)
+
+int vprintf_chars(int (*putc_f)(char, void*), void * userdata, int len, const char * format, va_list args)
 {
     struct FormatOpts opts;
-    opts.buffer = bfr;
-    opts.bufferEnd = bfr + len;
+    opts.putc_f = putc_f;
+    opts.userdata = userdata;
+    opts.nchars = 0;
+    opts.maxlen = len;
     
-    while(*format != '\0' && opts.buffer != opts.bufferEnd)
+    while(*format != '\0' && opts.nchars < len)
     {
         if(*format != '%') {
-            *opts.buffer++ = *format++;
+            putc_f(*format++, userdata);
+            ++(opts.nchars);
             continue;
         }
         
         format++;// skip over '%'
         opts.pre = '\0';
 #ifndef UPRINTF_TINY
+        // Parse formatting options if not compiled in tiny mode
         opts.pad = ' ';
         opts.ljust = false;
         
@@ -154,6 +197,7 @@ char * vbfrprintf(char * bfr, int len, const char * format, va_list args)
         while(isdigit(*format))
             opts.width = opts.width*10 + *format++ - '0';
         
+#ifdef UPRINTF_FLOATS
         // parse precision (only applicable for floats/fixpoint)
         opts.precision = 8;
         if(*format == '.') {
@@ -162,6 +206,7 @@ char * vbfrprintf(char * bfr, int len, const char * format, va_list args)
             while(isdigit(*format))
                 opts.precision = opts.precision*10 + *format++ - '0';
         }
+#endif // UPRINTF_FLOATS
 #endif // UPRINTF_TINY
         
         char size = '\0';
@@ -187,74 +232,97 @@ char * vbfrprintf(char * bfr, int len, const char * format, va_list args)
             bfrprint_integer(&opts, va_arg(args, unsigned int), 16);
             ++format;
         }
+#ifdef UPRINTF_FLOATS
+        else if(*format == 'e') {
+            // Longs not implemented (yet)
+            ++format;
+        }
+        else if(*format == 'f') {
+            // Longs not implemented (yet)
+            ++format;
+        }
+#endif // UPRINTF_FLOATS
         else if(*format == 'c') {
-            *opts.buffer++ = va_arg(args, int);
+            putc_f(va_arg(args, int), userdata);
+            ++(opts.nchars);
             ++format;
         }
         else if(*format == '%') {
-            *opts.buffer++ = '%';
+            putc_f('%', userdata);
+            ++(opts.nchars);
             ++format;
         }
         else if(*format == 'N') {
-            *opts.buffer++ = '\0';
+            putc_f('\0', userdata);
+            ++(opts.nchars);
             ++format;
         }
         else if(*format == 's') {
             char * src = va_arg(args, char *);
-            while(*src && opts.buffer != opts.bufferEnd)
-                *opts.buffer++ = *src++;
+            while(*src && opts.nchars < len) {
+                putc_f(*src++, userdata);
+                ++(opts.nchars);
+            }
             ++format;
         }
 #ifdef UPRINTF_TINY
         else if(*format == 'C') {
             ++format;
-            while(opts.buffer != opts.bufferEnd)
-                *opts.buffer++ = *format;
+            while(opts.nchars < len) {
+                putc_f(*format, userdata);
+                ++(opts.nchars);
+            }
             ++format;
         }
 #else
-        else if(*format == 'C') {
+        else if(*format == 'C')
+        {
             ++format;
-            if(opts.width > 0) {
-                for(int j = 0; j < opts.width && opts.buffer != opts.bufferEnd; ++j)
-                    *opts.buffer++ = *format;
+            if(opts.width > 0)
+            {
+                for(int j = 0; j < opts.width && opts.nchars < len; ++j) {
+                    putc_f(*format, userdata);
+                    ++(opts.nchars);
+                }
             }
-            else {
-                while(opts.buffer != opts.bufferEnd)
-                    *opts.buffer++ = *format;
+            else
+            {
+                while(opts.nchars < len) {
+                    putc_f(*format, userdata);
+                    ++(opts.nchars);
+                }
             }
             ++format;
         }
 #endif // UPRINTF_TINY
     }
-    
-    return opts.buffer;
+    return opts.nchars;
 }
 
-char * bfrprintf(char * bfr, int len, const char * format, ...)
+int bfrprintf(char * bfr, int len, const char * format, ...)
 {
     va_list args;
     va_start(args, format);
-    char * end = vbfrprintf(bfr, len, format, args);
+    int nchars = vprintf_chars(putc_linbuf, (void*)&bfr, len, format, args);
     va_end(args);
-    return end;
+    return nchars;
 }
 
 
 #ifdef TEST_UFORMAT
 
-void CheckOverrun(char * buffer, int len, char * bEnd)
+void CheckOverrun(char * buffer, int len, int nchars)
 {
-    if(bEnd > buffer + len)
+    if(nchars > len)
     {
         printf("Overran end of buffer!\n");
         exit(EXIT_FAILURE);
     }
 }
 
-void CheckResult(char * buffer, char * bEnd, char * expected)
+void CheckResult(char * buffer, int nchars, char * expected)
 {
-    CheckOverrun(buffer, strlen(expected) + 1, bEnd);
+    CheckOverrun(buffer, strlen(expected) + 1, nchars);
     if(strncmp(buffer, expected, strlen(expected)) == 0)
     {
         printf("got expected result: \"%s\"\n", expected);
@@ -270,56 +338,56 @@ void CheckResult(char * buffer, char * bEnd, char * expected)
 int main(int argc, const char * argv[])
 {
     char buffer[257];
-    char * bEnd = NULL;
+    int nchars = 0;
     
-    bEnd = bfrprintf(buffer, 256, "Foo%%%N");
-    CheckResult(buffer, bEnd, "Foo%\0");
+    nchars = bfrprintf(buffer, 256, "Foo%%%N");
+    CheckResult(buffer, nchars, "Foo%\0");
     
     
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", 1);
-    CheckResult(buffer, bEnd, "Foo1\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", 9);
-    CheckResult(buffer, bEnd, "Foo9\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", 123456789);
-    CheckResult(buffer, bEnd, "Foo123456789\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", 10);
-    CheckResult(buffer, bEnd, "Foo10\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%4d%N", 10);
-    CheckResult(buffer, bEnd, "Foo  10\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%04d%N", 10);
-    CheckResult(buffer, bEnd, "Foo0010\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%-4d%N", 10);
-    CheckResult(buffer, bEnd, "Foo10  \0");
-    bEnd = bfrprintf(buffer, 256, "Foo%-04d%N", 10);
-    CheckResult(buffer, bEnd, "Foo10  \0");
-    bEnd = bfrprintf(buffer, 256, "Foo%-+4d%N", 10);
-    CheckResult(buffer, bEnd, "Foo+10 \0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", 1);
+    CheckResult(buffer, nchars, "Foo1\0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", 9);
+    CheckResult(buffer, nchars, "Foo9\0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", 123456789);
+    CheckResult(buffer, nchars, "Foo123456789\0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", 10);
+    CheckResult(buffer, nchars, "Foo10\0");
+    nchars = bfrprintf(buffer, 256, "Foo%4d%N", 10);
+    CheckResult(buffer, nchars, "Foo  10\0");
+    nchars = bfrprintf(buffer, 256, "Foo%04d%N", 10);
+    CheckResult(buffer, nchars, "Foo0010\0");
+    nchars = bfrprintf(buffer, 256, "Foo%-4d%N", 10);
+    CheckResult(buffer, nchars, "Foo10  \0");
+    nchars = bfrprintf(buffer, 256, "Foo%-04d%N", 10);
+    CheckResult(buffer, nchars, "Foo10  \0");
+    nchars = bfrprintf(buffer, 256, "Foo%-+4d%N", 10);
+    CheckResult(buffer, nchars, "Foo+10 \0");
     
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", -1);
-    CheckResult(buffer, bEnd, "Foo-1\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", -9);
-    CheckResult(buffer, bEnd, "Foo-9\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%d%N", -10);
-    CheckResult(buffer, bEnd, "Foo-10\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%4d%N", -10);
-    CheckResult(buffer, bEnd, "Foo -10\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%04d%N", -10);
-    CheckResult(buffer, bEnd, "Foo-010\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%-4d%N", -10);
-    CheckResult(buffer, bEnd, "Foo-10 \0");
-    bEnd = bfrprintf(buffer, 256, "Foo%-+4d%N", -10);
-    CheckResult(buffer, bEnd, "Foo-10 \0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", -1);
+    CheckResult(buffer, nchars, "Foo-1\0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", -9);
+    CheckResult(buffer, nchars, "Foo-9\0");
+    nchars = bfrprintf(buffer, 256, "Foo%d%N", -10);
+    CheckResult(buffer, nchars, "Foo-10\0");
+    nchars = bfrprintf(buffer, 256, "Foo%4d%N", -10);
+    CheckResult(buffer, nchars, "Foo -10\0");
+    nchars = bfrprintf(buffer, 256, "Foo%04d%N", -10);
+    CheckResult(buffer, nchars, "Foo-010\0");
+    nchars = bfrprintf(buffer, 256, "Foo%-4d%N", -10);
+    CheckResult(buffer, nchars, "Foo-10 \0");
+    nchars = bfrprintf(buffer, 256, "Foo%-+4d%N", -10);
+    CheckResult(buffer, nchars, "Foo-10 \0");
     
-    bEnd = bfrprintf(buffer, 256, "Foo%X%N", 0x12345678);
-    CheckResult(buffer, bEnd, "Foo12345678\0");
-    bEnd = bfrprintf(buffer, 256, "Foo%X%N", 0x9ABCDEF0);
-    CheckResult(buffer, bEnd, "Foo9ABCDEF0\0");
+    nchars = bfrprintf(buffer, 256, "Foo%X%N", 0x12345678);
+    CheckResult(buffer, nchars, "Foo12345678\0");
+    nchars = bfrprintf(buffer, 256, "Foo%X%N", 0x9ABCDEF0);
+    CheckResult(buffer, nchars, "Foo9ABCDEF0\0");
     
-    bEnd = bfrprintf(buffer, 256, "Foo%4C&%N", 10);
-    CheckResult(buffer, bEnd, "Foo&&&&\0");
+    nchars = bfrprintf(buffer, 256, "Foo%4C&%N", 10);
+    CheckResult(buffer, nchars, "Foo&&&&\0");
     
-    bEnd = bfrprintf(buffer, 256, "%s %s%N", "red", "truck");
-    CheckResult(buffer, bEnd, "red truck\0");
+    nchars = bfrprintf(buffer, 256, "%s %s%N", "red", "truck");
+    CheckResult(buffer, nchars, "red truck\0");
     
     return EXIT_SUCCESS;
 }

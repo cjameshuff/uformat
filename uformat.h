@@ -30,6 +30,11 @@
 
 #include <stdarg.h>
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 // #define UPRINTF_LONG_INT   0 // Not implemented yet
 // #define UPRINTF_FLOAT      0 // Not implemented yet
 // #define UPRINTF_FIXPOINT   0 // Not implemented yet
@@ -38,7 +43,7 @@
 // #define UPRINTF_TINY       0
 
 // Usage is very similar to snprintf(), with some important differences.
-// Prints format string, and returns address of character after the end.
+// Prints format string, and returns number of chars in output string.
 // *DOES NOT APPEND NULL CHARACTERS.*
 // Differences from standard format strings:
 // %width.dividerF: decimal fixpoint (TODO)
@@ -46,7 +51,14 @@
 // %N: explicit null character
 // # flag and * for width/precision by arguments are unimplemented
 // %x and %X both use upper case letters
-char * bfrprintf(char * bfr, int len, const char * format, ...);
-char * vbfrprintf(char * bfr, int len, const char * format, va_list args);
+int bfrprintf(char * bfr, int len, const char * format, ...);
+
+
+int vprintf_chars(int (*putc_f)(char, void*), void * optdata, int len, const char * format, va_list args);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // UPRINTF_H
